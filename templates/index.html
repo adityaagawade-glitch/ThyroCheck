@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ThyroCheck — AI Thyroid Screening Dashboard</title>
+  <meta name="description"
+    content="Advanced AI-powered thyroid screening system with trend tracking, risk analysis, and personalized health recommendations.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+
+<body>
+  <div class="container">
+
+    <!-- Top bar -->
+    <div class="top-bar">
+      <button class="toggle-btn" id="theme-btn" onclick="toggleTheme()">☀️ Light</button>
+      <button class="toggle-btn" id="doctor-btn" onclick="toggleDoctor()">🩺 Doctor Mode</button>
+      <button class="toggle-btn" onclick="openSettings()">⚙️ Lab Ranges</button>
+    </div>
+
+    <!-- Header -->
+    <header>
+      <div class="logo"><img src="{{ url_for('static', filename='logo.png') }}" alt="ThyroCheck Logo" style="width:72px;height:auto;filter:drop-shadow(0 0 20px rgba(167,139,250,.4))"></div>
+      <h1>ThyroCheck</h1>
+      <p>AI-assisted thyroid screening &amp; monitoring dashboard</p>
+    </header>
+
+    <!-- ─── INPUT SECTION ─── -->
+    <div class="grid-2">
+      <div class="card">
+        <h2>Enter Lab Values</h2>
+        <div class="presets">
+          <span>Try:</span>
+          <button class="preset-btn hypo" onclick="setPreset(6.2,0.6,50)">Hypo case</button>
+          <button class="preset-btn hyper" onclick="setPreset(0.1,2.8,180)">Hyper case</button>
+          <button class="preset-btn norm" onclick="setPreset(2.1,1.4,100)">Normal case</button>
+        </div>
+
+        <div class="input-group">
+          <label><span class="icon">🔬</span> TSH <span class="unit">mIU/L</span>
+            <span class="tooltip"
+              data-tip="Thyroid Stimulating Hormone — controls thyroid activity. High = underactive, Low = overactive.">ⓘ</span></label>
+          <div class="input-row">
+            <input type="number" id="tsh" placeholder="e.g. 2.5" step="0.1" min="0" max="20"
+              oninput="syncSlider('tsh')">
+            <input type="range" id="tsh-slider" min="0" max="15" step="0.1" value="2.5" oninput="syncInput('tsh')">
+          </div>
+          <div class="range-hint" id="tsh-range">Normal: 0.4–4.5 mIU/L</div>
+        </div>
+
+        <div class="input-group">
+          <label><span class="icon">🧬</span> T3 <span class="unit">nmol/L</span>
+            <span class="tooltip"
+              data-tip="Triiodothyronine — active thyroid hormone controlling metabolism.">ⓘ</span></label>
+          <div class="input-row">
+            <input type="number" id="t3" placeholder="e.g. 1.4" step="0.1" min="0" max="5" oninput="syncSlider('t3')">
+            <input type="range" id="t3-slider" min="0" max="5" step="0.1" value="1.4" oninput="syncInput('t3')">
+          </div>
+          <div class="range-hint" id="t3-range">Normal: 0.8–2.0 nmol/L</div>
+        </div>
+
+        <div class="input-group">
+          <label><span class="icon">⚗️</span> T4 <span class="unit">nmol/L</span>
+            <span class="tooltip"
+              data-tip="Thyroxine — main hormone produced by thyroid. Converted to T3 in body.">ⓘ</span></label>
+          <div class="input-row">
+            <input type="number" id="t4" placeholder="e.g. 100" step="1" min="0" max="300" oninput="syncSlider('t4')">
+            <input type="range" id="t4-slider" min="0" max="300" step="1" value="100" oninput="syncInput('t4')">
+          </div>
+          <div class="range-hint" id="t4-range">Normal: 58–161 nmol/L</div>
+        </div>
+
+        <button class="submit-btn" id="submit-btn" onclick="predict(event)">Analyse thyroid function</button>
+        <div class="error-msg" id="error-msg"></div>
+      </div>
+
+      <div class="card">
+        <h2>Symptoms (Optional)</h2>
+        <p style="font-size:12px;color:var(--text3);margin-bottom:12px">Check any symptoms you're experiencing — this
+          adjusts risk scoring.</p>
+        <div class="symptom-grid">
+          {% for key, sym in symptoms.items() %}
+          <label class="symptom-item"><input type="checkbox" class="symptom-check" value="{{ key }}"> {{ sym.label
+            }}</label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── RESULTS SECTION ─── -->
+    <div class="results-section" id="results-section">
+
+      <div class="grid-2">
+        <!-- Diagnosis -->
+        <div class="card">
+          <div class="result-header">
+            <div class="result-icon" id="result-icon"></div>
+            <div>
+              <div class="result-title" id="result-title"></div>
+              <div class="result-subtitle" id="result-subtitle"></div>
+            </div>
+          </div>
+          <!-- Gauge -->
+          <div class="gauge-wrap" id="gauge-container"></div>
+        </div>
+
+        <!-- Comparison -->
+        <div class="card">
+          <h2>Your Values vs Normal Range</h2>
+          <div id="comparison-bars"></div>
+        </div>
+      </div>
+
+      <!-- Marker analysis & Explanation -->
+      <div class="grid-2">
+        <div class="card">
+          <h3>Marker Analysis</h3>
+          <div id="flags-list"></div>
+          <div style="margin-top:16px">
+            <h3>Health Guidance</h3>
+            <div id="tips-list"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>📋 Explain My Report</h3>
+          <div id="explanation-text" style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:16px"></div>
+
+          <button class="expand-btn" onclick="toggleExpand('logic-expand')">🧠 Why this result? <span
+              class="arrow">▼</span></button>
+          <div class="expand-content" id="logic-expand">
+            <div class="expand-body" id="logic-list"></div>
+          </div>
+
+          <div class="confidence-box" style="margin-top:12px">
+            <strong>Confidence:</strong> <span id="confidence-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Causes & Severity -->
+      <!-- Symptom Analysis (shows only when symptoms are checked) -->
+      <div class="card" id="symptom-analysis-card" style="display:none">
+        <h3>🩻 Symptom–Thyroid Correlation Analysis</h3>
+        <div id="symptom-summary"
+          style="font-size:13px;color:var(--text2);margin-bottom:16px;padding:12px;background:var(--glass);border-radius:10px;border-left:3px solid var(--accent)">
+        </div>
+        <div id="symptom-analysis-list"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>🧬 Possible Causes</h3>
+          <div id="causes-list"></div>
+        </div>
+
+        <div class="card">
+          <h3>🍽 Diet Recommendations</h3>
+          <div id="diet-list"></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>🏃 Lifestyle Suggestions</h3>
+          <div id="lifestyle-list"></div>
+        </div>
+
+        <div class="card">
+          <h3>🔔 Smart Alerts</h3>
+          <div id="alerts-box"></div>
+        </div>
+      </div>
+
+      <!-- Clinical (Doctor Mode) -->
+      <div class="card">
+        <h3>🩺 Clinical View</h3>
+        <div class="clinical-view" id="clinical-body"></div>
+        <p style="font-size:11px;color:var(--text3);margin-top:8px">(Toggle Doctor Mode in the top bar to show/hide)</p>
+      </div>
+
+      <!-- Actions -->
+      <div class="card">
+        <div class="actions-row">
+          <button class="action-btn primary" onclick="downloadPDF()">📄 Download Report (PDF)</button>
+          <button class="action-btn"
+            onclick="navigator.clipboard.writeText(document.getElementById('explanation-text').textContent);this.textContent='✓ Copied!'">📋
+            Copy Explanation</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ─── DASHBOARD ─── -->
+    <div class="dashboard-section">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="margin:0">📅 Test History</h2>
+          <button class="toggle-btn" onclick="clearHistory()" style="font-size:11px">🗑 Clear</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>TSH</th>
+                <th>T3</th>
+                <th>T4</th>
+                <th>Result</th>
+                <th>Trend</th>
+              </tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>📈 Value Trends Over Time</h2>
+        <div class="chart-box"><canvas id="trend-canvas"></canvas></div>
+        <p style="font-size:11px;color:var(--text3);margin-top:4px">Run multiple tests over time to see your thyroid
+          trends.</p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <p class="disclaimer">⚕️ This tool is for educational and screening purposes only. Not a substitute for professional
+      medical diagnosis. Always consult a qualified doctor.</p>
+
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal">
+      <h2>⚙️ Custom Lab Ranges</h2>
+      <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Different labs may use different reference ranges.
+        Customize them here.</p>
+      <div class="grid-2">
+        <div class="input-group"><label>TSH Low</label><input id="r-tsh-low" type="number" step="0.1"></div>
+        <div class="input-group"><label>TSH High</label><input id="r-tsh-high" type="number" step="0.1"></div>
+        <div class="input-group"><label>T3 Low</label><input id="r-t3-low" type="number" step="0.1"></div>
+        <div class="input-group"><label>T3 High</label><input id="r-t3-high" type="number" step="0.1"></div>
+        <div class="input-group"><label>T4 Low</label><input id="r-t4-low" type="number" step="1"></div>
+        <div class="input-group"><label>T4 High</label><input id="r-t4-high" type="number" step="1"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="action-btn" onclick="resetRanges()">Reset Defaults</button>
+        <button class="action-btn" onclick="closeSettings()">Cancel</button>
+        <button class="action-btn primary" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden PDF report (populated by JS) -->
+  <div id="pdf-report" style="position:fixed;left:0;top:0;z-index:-9999;opacity:0;pointer-events:none;width:794px;"></div>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+
+</html>
